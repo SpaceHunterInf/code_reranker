@@ -1,0 +1,8 @@
+{
+    "embedding_provider": "google",
+    "embedding_model": "gemini-embedding-exp-03-07",
+    "api_key": "YOUR_API_KEY",
+    "github_url": "https://github.com/bansky-cl/diffusion-nlp-paper-arxiv",
+    "save_dir": "save",
+    "update": false
+  }
