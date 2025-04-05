@@ -1,0 +1,3 @@
+expansion_prompt = '''Generate {count} different search queries that would help find relevant code files for the following question or request. Return only the queries, one per line, without any additional text or explanation.\n\nQuestion: {query}\n\nQueries: '''
+
+summary_prompt = '''You are a language model that specializes in summarizing content. Your task is to provide a concise summary of the given document or code within {max_length} words. The summary should capture the main points and ideas while being clear and easy to understand.'''

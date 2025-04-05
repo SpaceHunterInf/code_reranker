@@ -6,9 +6,11 @@ import json
 import numpy as np
 import faiss
 import pickle
-from sentence_transformers import SentenceTransformer
 from typing import List, Dict, Tuple, Set, Union, Optional
 from pathlib import Path
+# Import the embedding provider factory
+from embeds_util import create_embedding_provider, EmbeddingProvider
+from helper_util import create_llm_helper
 
 class CodeReranker:
     def __init__(self, config_path: Optional[str] = None, config: Optional[Dict] = None):
@@ -21,11 +23,15 @@ class CodeReranker:
         """
         # Default configuration
         self.config = {
+            "embedding_provider": "sentence_transformer",
             "embedding_model": "all-MiniLM-L6-v2",
             "repo_dir": None,
             "update": False,
             "github_url": None,
-            "save_dir": "save"
+            "save_dir": "save",
+            "query_expansion": False,
+            "summary": False,
+            "helper_type": None
         }
         
         # Load config from file if provided
@@ -41,11 +47,23 @@ class CodeReranker:
         if self.config["github_url"] and not self.config.get("repo_name"):
             self.config["repo_name"] = self._get_repo_name(self.config["github_url"])
             
-        # Setup model
-        self.model = SentenceTransformer(self.config["embedding_model"])
+        # Setup embedding provider
+        self._setup_embedding_provider()
+        
         self.index = None
         self.file_paths = []
         self.repo_dir = None
+        
+        if self.config['summary'] or self.config['query_expansion']:
+            if not self.config.get("helper_type"):
+                raise ValueError("Helper type must be specified for summary or query expansion.")
+            else:
+                self.llm_helper = create_llm_helper(self.config['helper_type'], self.config)
+        
+    def _setup_embedding_provider(self):
+        """Setup the embedding provider based on configuration"""
+        
+        self.embedding_provider = create_embedding_provider(self.config)
         
     def _get_repo_name(self, github_url: str) -> str:
         """Extract repository name from GitHub URL"""
@@ -62,12 +80,13 @@ class CodeReranker:
         # Ensure repo directory exists
         os.makedirs(self.config["repo_dir"], exist_ok=True)
         
-        # Setup cache directory
+        # Setup cache directory using the provider name for isolation
+        provider_name = self.embedding_provider.name
         self.cache_dir = os.path.join(
             self.config["save_dir"], 
             repo_name, 
             "cache", 
-            self.config["embedding_model"]
+            provider_name
         )
         os.makedirs(self.cache_dir, exist_ok=True)
         
@@ -172,7 +191,8 @@ class CodeReranker:
                 contents.append(f"File: {file_path}")
         
         print("Generating embeddings...")
-        embeddings = self.model.encode(contents, show_progress_bar=True)
+        # Use the provider to generate embeddings
+        embeddings = self.embedding_provider.encode(contents, show_progress_bar=True)
         
         # Save the embeddings
         embeddings_path = os.path.join(self.cache_dir, "embeddings.npy")
@@ -230,15 +250,51 @@ class CodeReranker:
         if self.index is None:
             raise ValueError("Index not built. Call build_index first.")
             
-        # Generate embedding for the question
-        question_embedding = self.model.encode([question])
+        # Generate embedding for the question using the provider
+        if self.config["query_expansion"] and self.llm_helper:
+            questions = self.llm_helper.get_expansion(question)
+            print(f"Expanded queries: {questions}")
+        else:
+            questions = [question]
+            
+        all_results = []
+        all_indices = set()
         
-        # Search the index
-        _, indices = self.index.search(question_embedding.astype(np.float32), k)
         
-        # Return file paths for the top results
-        results = [self.file_paths[idx] for idx in indices[0] if 0 <= idx < len(self.file_paths)]
-        return results
+        # Process each question
+        # TODO better model for reranking
+        for q in questions:
+            # Generate embedding for the question
+            q_embedding = self.embedding_provider.encode([q])
+            
+            # Search the index
+            _, indices = self.index.search(q_embedding.astype(np.float32), k)
+            
+            # Collect unique results
+            for idx in indices[0]:
+                if 0 <= idx < len(self.file_paths) and idx not in all_indices:
+                    all_results.append(self.file_paths[idx])
+                    all_indices.add(idx)
+                    
+                    # Stop when we have k results
+                    if len(all_results) >= k:
+                        break
+                        
+            # Stop when we have k results
+            if len(all_results) >= k:
+                break
+                
+        # Return the top k results (or fewer if not enough found)
+        
+        if self.config["summary"] and self.llm_helper:
+            # Generate summaries for the results
+            file_summaries = {}
+            for result in all_results[:k]:
+                summary = self.llm_helper.get_summary(result)
+                file_summaries[result] = summary
+                print(f"File: {result}\nSummary: {summary}\n")
+        
+        return all_results[:k]
     
     def cleanup(self) -> None:
         """Clean up temporary repository directory"""

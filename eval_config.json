@@ -1,0 +1,7 @@
+{
+    "embedding_provider": "sentence_transformer",
+    "embedding_model": "sentence-transformers/gtr-t5-xl",
+    "github_url": "https://github.com/viarotel-org/escrcpy",
+    "save_dir": "save",
+    "update": true
+}
