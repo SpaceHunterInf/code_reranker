@@ -1,6 +1,12 @@
 {
+    "embedding_provider": "sentence_transformer",
     "embedding_model": "sentence-transformers/gtr-t5-xl",
     "github_url": "https://github.com/viarotel-org/escrcpy",
     "save_dir": "save",
-    "update": false
-  }
+    "update": false,
+    "query_expansion": true,
+    "summary": true,
+    "helper_type": "vllm",
+    "helper_model_dtype": "float16",
+    "chat_mode": true
+}
